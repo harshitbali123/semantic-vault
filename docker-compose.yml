@@ -1,0 +1,109 @@
+version: '3.9'
+
+services:
+
+  # ── Frontend ──────────────────────────────────
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src       # hot reload
+    networks:
+      - app-network
+    depends_on:
+      - backend
+
+  # ── Backend (Node + Express) ──────────────────
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/src:/app/src        # live reload
+      - uploads-data:/app/uploads     # shared with worker
+    env_file: .env
+    networks:
+      - app-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  # ── Python FastAPI ────────────────────────────
+  ai-service:
+    build: ./ai-service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai-service:/app             # hot reload
+      - uploads-data:/app/uploads     # shared with backend
+    env_file: .env
+    networks:
+      - app-network
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ── Celery Worker (same image as ai-service) ──
+  # celery-worker:
+  #   build: ./ai-service               # same Dockerfile!
+  #   command: >
+  #     celery -A app.celery_app worker
+  #     --loglevel=info
+  #     --concurrency=2
+  #   volumes:
+  #     - ./ai-service:/app
+  #     - uploads-data:/app/uploads     # reads files here
+  #   env_file: .env
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+
+  # ── Redis ─────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Qdrant Vector DB ──────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"                   # REST API + dashboard
+      - "6334:6334"                   # gRPC
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - app-network
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+
+  # ── Supabase (self-hosted) ────────────────────
+  # Run separately: cd supabase && supabase start
+  # or add the full supabase docker-compose here
+  # See step 6 for Supabase setup details
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  qdrant-data:
+  uploads-data:       # shared between backend + celery-worker
