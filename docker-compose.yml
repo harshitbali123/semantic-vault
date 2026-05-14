@@ -25,6 +25,7 @@ services:
     env_file: .env
     networks:
       - app-network
+      - supabase_network_semantic-vault
     depends_on:
       redis:
         condition: service_healthy
@@ -47,21 +48,21 @@ services:
         condition: service_healthy
 
   # ── Celery Worker (same image as ai-service) ──
-  # celery-worker:
-  #   build: ./ai-service               # same Dockerfile!
-  #   command: >
-  #     celery -A app.celery_app worker
-  #     --loglevel=info
-  #     --concurrency=2
-  #   volumes:
-  #     - ./ai-service:/app
-  #     - uploads-data:/app/uploads     # reads files here
-  #   env_file: .env
-  #   networks:
-  #     - app-network
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
+  celery-worker:
+    build: ./ai-service               # same Dockerfile!
+    command: >
+      celery -A app.celery_app worker
+      --loglevel=info
+      --concurrency=2
+    volumes:
+      - ./ai-service:/app
+      - uploads-data:/app/uploads     # reads files here
+    env_file: .env
+    networks:
+      - app-network
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # ── Redis ─────────────────────────────────────
   redis:
@@ -102,6 +103,8 @@ services:
 networks:
   app-network:
     driver: bridge
+  supabase_network_semantic-vault:
+    external: true
 
 volumes:
   redis-data:
