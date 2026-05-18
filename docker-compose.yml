@@ -19,6 +19,8 @@ services:
     build: ./backend
     ports:
       - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend/src:/app/src
       - uploads-data:/app/uploads
@@ -36,11 +38,15 @@ services:
   # ── Python FastAPI ────────────────────────────
   ai-service:
     build: ./ai-service
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./ai-service:/app
       - uploads-data:/app/uploads
+      - hf-cache:/root/.cache/huggingface
     env_file:
       - ./.env
     networks:
@@ -53,12 +59,15 @@ services:
   celery-worker:
     build: ./ai-service
     command: >
-      celery -A celery_app worker
+      celery -A app.celery_app worker
       --loglevel=info
       --concurrency=2
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./ai-service:/app
       - uploads-data:/app/uploads
+      - hf-cache:/root/.cache/huggingface
     env_file:
       - ./.env
     networks:
@@ -104,3 +113,4 @@ volumes:
   redis-data:
   qdrant-data:
   uploads-data:
+  hf-cache:

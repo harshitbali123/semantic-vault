@@ -5,6 +5,7 @@ require('dotenv').config()
 
 const authMiddleware = require('./middleware/auth')
 const authRoutes = require('./routes/auth')
+const documentsRoutes = require('./routes/documents')
 
 const app = express()
 
@@ -20,6 +21,10 @@ app.get('/health', (req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use(
+  '/api/documents',
+  documentsRoutes
+)
 
 // All routes below require auth
 app.use('/api', authMiddleware)

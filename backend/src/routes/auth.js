@@ -1,5 +1,5 @@
 const express = require('express')
-const supabase = require('../config/supabase')
+const { supabase, supabaseAdmin } = require('../config/supabase')
 
 const router = express.Router()
 
@@ -14,7 +14,7 @@ router.post('/signup', async (req, res) => {
   }
 
   const { data, error } =
-    await supabase.auth.admin.createUser({
+    await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true

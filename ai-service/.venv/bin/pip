@@ -1,6 +1,4 @@
-#!/bin/sh
-'''exec' "/media/harshit/bali H/semantic-vault/ai-service/.venv/bin/python3.11" "$0" "$@"
-' '''
+#!/home/harshitbali/projects/semantic-vault/ai-service/.venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys
