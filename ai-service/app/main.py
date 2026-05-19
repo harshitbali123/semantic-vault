@@ -43,7 +43,8 @@ def health():
 # ── Dispatch ingestion task ──────────────────────
 class DispatchRequest(BaseModel):
     document_id: str
-    file_path: str
+    file_url: str
+    file_name: str
     user_id: str
 
 
@@ -53,8 +54,9 @@ def dispatch_ingest(req: DispatchRequest):
     from app.tasks import ingest_document
 
     task = ingest_document.delay(
-        req.file_path,
         req.document_id,
+        req.file_url,
+        req.file_name,
         req.user_id
     )
 

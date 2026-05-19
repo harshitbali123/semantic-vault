@@ -26,6 +26,8 @@ app.use(
   documentsRoutes
 )
 
+app.use('/api/connectors/google', require('./routes/connectors/google'))
+
 // All routes below require auth
 app.use('/api', authMiddleware)
 

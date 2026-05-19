@@ -1,37 +1,14 @@
 const express = require('express')
 const multer = require('multer')
 const path = require('path')
-const fs = require('fs')
+
+const { supabaseAdmin } = require('../config/supabase')
 
 const router = express.Router()
 
-
-// ── Ensure uploads dir exists ───────────────────
-
-const uploadDir =
-  path.join(__dirname, '../../uploads')
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true })
-}
-
-
 // ── Multer config ───────────────────────────────
 
-const storage = multer.diskStorage({
-
-  destination: (req, file, cb) => {
-    cb(null, uploadDir)
-  },
-
-  filename: (req, file, cb) => {
-
-    const unique =
-      `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`
-
-    cb(null, unique)
-  }
-})
+const storage = multer.memoryStorage()
 
 
 const upload = multer({
@@ -63,6 +40,18 @@ const upload = multer({
   }
 })
 
+const STORAGE_BUCKET =
+  process.env.SUPABASE_STORAGE_BUCKET || 'documents'
+
+
+function buildStoragePath(fileName, userId) {
+
+  const safeName =
+    fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+
+  return `${userId}/${Date.now()}-${safeName}`
+}
+
 
 // ── Upload route ────────────────────────────────
 
@@ -80,12 +69,44 @@ router.post(
         })
       }
 
-      const filePath =
-        `/app/uploads/${req.file.filename}`
+      const userId = 'demo-user'
+      const storagePath = buildStoragePath(
+        req.file.originalname,
+        userId
+      )
+
+      const { error: uploadErr } = await supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .upload(storagePath, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: false
+        })
+
+      if (uploadErr) {
+        return res.status(500).json({
+          error: uploadErr.message
+        })
+      }
+
+      console.log('[Backend] uploaded to storage:', storagePath)
+
+      const signedUrlResult = await supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .createSignedUrl(storagePath, 60 * 60)
+
+      if (signedUrlResult.error || !signedUrlResult.data?.signedUrl) {
+        return res.status(500).json({
+          error: signedUrlResult.error?.message || 'Failed to create signed URL'
+        })
+      }
+
+      const fileUrl = signedUrlResult.data.signedUrl
+
+      console.log('[Backend] signed url created for:', storagePath)
 
       console.log(
         '[Backend] Uploaded:',
-        filePath
+        storagePath
       )
 
       // Call AI service dispatch endpoint
@@ -100,11 +121,14 @@ router.post(
 
           body: JSON.stringify({
             document_id: crypto.randomUUID(),
-            file_path: filePath,
-            user_id: 'demo-user'
+            file_url: fileUrl,
+            file_name: req.file.originalname,
+            user_id: userId
           })
         }
       )
+
+      console.log('[Backend] celery dispatched for:', storagePath)
 
       const contentType = response.headers.get('content-type') || ''
       const bodyText = await response.text()
