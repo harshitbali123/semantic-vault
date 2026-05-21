@@ -27,3 +27,4 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')

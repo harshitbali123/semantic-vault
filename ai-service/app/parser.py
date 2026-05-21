@@ -4,6 +4,7 @@ from unstructured.partition.auto import partition
 from unstructured.cleaners.core import clean
 
 SUPPORTED_TYPES = {'.pdf', '.docx', '.pptx', '.txt', '.md'}
+IMAGE_TYPES = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff'}
 
 
 def parse_document(file_path: str) -> dict:
@@ -23,6 +24,16 @@ def parse_document(file_path: str) -> dict:
         raise FileNotFoundError(f"File not found: {file_path}")
 
     ext = path.suffix.lower()
+
+    if ext in IMAGE_TYPES:
+        return {
+            "text_chunks": [],
+            "images": [{
+                "image_bytes": path.read_bytes(),
+                "page_no": 1,
+                "img_index": 0
+            }]
+        }
 
     if ext not in SUPPORTED_TYPES:
         raise ValueError(f"Unsupported file type: {ext}")

@@ -1,8 +1,11 @@
 const express = require('express')
 const multer = require('multer')
 const path = require('path')
+const { randomUUID } = require('crypto')
 
 const { supabaseAdmin } = require('../config/supabase')
+const authMiddleware = require('../middleware/auth')
+const { flushUserCache } = require('../utils/searchCache')
 
 const router = express.Router()
 
@@ -52,11 +55,41 @@ function buildStoragePath(fileName, userId) {
   return `${userId}/${Date.now()}-${safeName}`
 }
 
+async function dispatchToAiService(payload, retries = 3) {
+  let lastErr
+
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(
+        `${process.env.AI_SERVICE_URL}/dispatch`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        }
+      )
+
+      return response
+    } catch (err) {
+      lastErr = err
+
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt))
+      }
+    }
+  }
+
+  throw lastErr
+}
+
 
 // ── Upload route ────────────────────────────────
 
 router.post(
   '/upload',
+  authMiddleware,
   upload.single('file'),
 
   async (req, res) => {
@@ -69,7 +102,7 @@ router.post(
         })
       }
 
-      const userId = 'demo-user'
+      const userId = req.user.id
       const storagePath = buildStoragePath(
         req.file.originalname,
         userId
@@ -102,6 +135,8 @@ router.post(
 
       const fileUrl = signedUrlResult.data.signedUrl
 
+      const documentId = randomUUID()
+
       console.log('[Backend] signed url created for:', storagePath)
 
       console.log(
@@ -109,24 +144,56 @@ router.post(
         storagePath
       )
 
+      const { data: documentRow, error: documentErr } = await supabaseAdmin
+        .from('documents')
+        .insert({
+          id: documentId,
+          user_id: userId,
+          name: req.file.originalname,
+          source: 'upload',
+          file_path: storagePath,
+          mime_type: req.file.mimetype,
+          file_size: req.file.size,
+          status: 'pending'
+        })
+        .select()
+        .single()
+
+      if (documentErr) {
+        console.error('[Backend] document insert failed:', documentErr)
+        return res.status(500).json({
+          error: documentErr.message
+        })
+      }
+
+      console.log('[Backend] document row created:', documentRow.id)
+
+      const { data: jobRow, error: jobErr } = await supabaseAdmin
+        .from('jobs')
+        .insert({
+          document_id: documentRow.id,
+          status: 'pending'
+        })
+        .select()
+        .single()
+
+      if (jobErr) {
+        console.error('[Backend] job insert failed:', jobErr)
+        return res.status(500).json({
+          error: jobErr.message
+        })
+      }
+
+      console.log('[Backend] job row created:', jobRow.id)
+
       // Call AI service dispatch endpoint
-      const response = await fetch(
-        `${process.env.AI_SERVICE_URL}/dispatch`,
-        {
-          method: 'POST',
-
-          headers: {
-            'Content-Type': 'application/json'
-          },
-
-          body: JSON.stringify({
-            document_id: crypto.randomUUID(),
-            file_url: fileUrl,
-            file_name: req.file.originalname,
-            user_id: userId
-          })
-        }
-      )
+      const response = await dispatchToAiService({
+        document_id: documentRow.id,
+        file_url: fileUrl,
+        file_name: req.file.originalname,
+        mime_type: req.file.mimetype,
+        user_id: userId
+      })
 
       console.log('[Backend] celery dispatched for:', storagePath)
 
@@ -143,8 +210,17 @@ router.post(
         ? JSON.parse(bodyText)
         : { raw: bodyText }
 
+      if (data?.task_id) {
+        await supabaseAdmin
+          .from('jobs')
+          .update({ celery_task_id: data.task_id })
+          .eq('id', jobRow.id)
+      }
+
       return res.json({
         success: true,
+        document_id: documentRow.id,
+        task_id: data?.task_id,
         task: data
       })
 
@@ -162,7 +238,7 @@ router.post(
 
 // ── Task status route ───────────────────────────
 
-router.get('/jobs/:taskId', async (req, res) => {
+router.get('/jobs/:taskId', authMiddleware, async (req, res) => {
 
   try {
 
@@ -182,6 +258,15 @@ router.get('/jobs/:taskId', async (req, res) => {
     const data = contentType.includes('application/json')
       ? JSON.parse(bodyText)
       : { raw: bodyText }
+
+    // If job just completed, flush search cache so new doc is searchable
+    try {
+      if (data.status === 'SUCCESS') {
+        await flushUserCache(req.user.id)
+      }
+    } catch (err) {
+      console.error('[Backend] flushUserCache failed:', err)
+    }
 
     return res.json(data)
 

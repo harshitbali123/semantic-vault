@@ -12,16 +12,25 @@ function getOAuth2Client() {
   )
 }
 
-// Step 1: Redirect to Google consent
-router.get('/auth', authMiddleware, (req, res) => {
+function buildAuthUrl(userId) {
   const oauth2 = getOAuth2Client()
-  const url = oauth2.generateAuthUrl({
+
+  return oauth2.generateAuthUrl({
     access_type: 'offline',
     prompt:      'consent',
     scope:       ['https://www.googleapis.com/auth/drive.readonly'],
-    state:       req.user.id    // pass user_id through OAuth
+    state:       userId
   })
-  res.redirect(url)
+}
+
+// Step 1: Redirect to Google consent
+router.get('/auth', authMiddleware, (req, res) => {
+  res.redirect(buildAuthUrl(req.user.id))
+})
+
+// Authenticated helper for the frontend: return the OAuth URL as JSON
+router.get('/auth-url', authMiddleware, (req, res) => {
+  res.json({ authUrl: buildAuthUrl(req.user.id) })
 })
 
 // Step 2: Google redirects here with code
@@ -80,7 +89,15 @@ router.post('/sync', authMiddleware, async (req, res) => {
         "mimeType='application/pdf' or " +
         "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document' or " +
         "mimeType='application/vnd.google-apps.document' or " +
-        "mimeType='text/plain')"
+        "mimeType='text/plain' or " +
+        "mimeType='image/jpeg' or " +
+        "mimeType='image/png' or " +
+        "mimeType='image/gif' or " +
+        "mimeType='image/webp' or " +
+        "mimeType='image/bmp' or " +
+        "mimeType='image/tiff')",
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true
     }
 
     // Use stored page_token for delta sync
@@ -189,14 +206,12 @@ router.post('/sync', authMiddleware, async (req, res) => {
       }
     }
 
-    // Save page_token for next delta sync
-    if (listRes.data.nextPageToken) {
-      await supabaseAdmin.from('connectors').update({
-        page_token:         listRes.data.nextPageToken,
-        last_synced_at:     new Date().toISOString(),
-        total_files_synced: connector.total_files_synced + dispatched.length
-      }).eq('id', connector.id)
-    }
+    // Save page_token and sync metadata for next delta sync
+    await supabaseAdmin.from('connectors').update({
+      page_token:         listRes.data.nextPageToken || null,
+      last_synced_at:     new Date().toISOString(),
+      total_files_synced: Number(connector.total_files_synced || 0) + dispatched.length
+    }).eq('id', connector.id)
 
     res.json({ synced: dispatched.length, files: dispatched })
 

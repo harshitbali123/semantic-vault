@@ -238,6 +238,7 @@ def process_document(
         # ── Process images ───────────────────────────
 
         image_points = []
+        image_chunk_rows = []
 
         for img in parsed["images"]:
 
@@ -245,8 +246,10 @@ def process_document(
                 img["image_bytes"]
             )
 
+            point_id = str(uuid.uuid4())
+
             point = PointStruct(
-                id=str(uuid.uuid4()),
+                id=point_id,
                 vector=vector.tolist(),
                 payload={
                     "document_id": document_id,
@@ -257,12 +260,25 @@ def process_document(
 
             image_points.append(point)
 
+            # Prepare a chunk row for this image so it appears in the chunks table
+            image_chunk_rows.append({
+                "document_id": document_id,
+                "chunk_text": None,
+                "page_no": img["page_no"],
+                "chunk_index": img.get("img_index", 0),
+                "qdrant_point_id": point_id
+            })
+
         if image_points:
 
             client.upsert(
                 collection_name="images",
                 points=image_points
             )
+
+        if image_chunk_rows:
+            # Insert image chunk metadata into Supabase so UI and queries see image chunks
+            supabase.table("chunks").insert(image_chunk_rows).execute()
 
         print(
             f"[Task] Upserted "

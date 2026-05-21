@@ -1,5 +1,5 @@
 const express = require('express')
-const supabase = require('../../config/supabase')
+const { supabaseAdmin } = require('../../config/supabase')
 
 const router = express.Router()
 
@@ -7,7 +7,7 @@ const router = express.Router()
 // List all connected services for current user
 router.get('/', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('connectors')
       .select(`
         id,
@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
 // Disconnect a connector
 router.delete('/:type', async (req, res) => {
   try {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from('connectors')
       .delete()
       .eq('user_id', req.user.id)

@@ -6,6 +6,8 @@ require('dotenv').config()
 const authMiddleware = require('./middleware/auth')
 const authRoutes = require('./routes/auth')
 const documentsRoutes = require('./routes/documents')
+const searchRoutes = require('./routes/search')
+const askRoutes = require('./routes/ask')
 
 const app = express()
 
@@ -25,11 +27,17 @@ app.use(
   '/api/documents',
   documentsRoutes
 )
-
+app.use('/api/ask', askRoutes)
 app.use('/api/connectors/google', require('./routes/connectors/google'))
+app.use(
+  '/api/connectors',
+  authMiddleware,
+  require('./routes/connectors')
+)
 
 // All routes below require auth
 app.use('/api', authMiddleware)
+app.use('/api/search', searchRoutes)
 
 // Protected test route
 app.get('/api/test', (req, res) => {

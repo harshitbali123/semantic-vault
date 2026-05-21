@@ -84,11 +84,16 @@ def embed_image(image_bytes: bytes) -> np.ndarray:
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     inputs = CLIP_PROCESSOR(images=image, return_tensors="pt")
     with torch.no_grad():
-        features = CLIP_MODEL.get_image_features(**inputs)
+        vision_outputs = CLIP_MODEL.vision_model(pixel_values=inputs["pixel_values"])
+        features = CLIP_MODEL.visual_projection(vision_outputs.pooler_output)
+
     # Normalize for cosine similarity
-    embedding = features[0].numpy()
-    embedding = embedding / np.linalg.norm(embedding)
-    return embedding
+    embedding = features[0].detach().cpu().numpy().astype(np.float32).reshape(-1)
+    norm = np.linalg.norm(embedding)
+    if norm == 0:
+        return embedding
+
+    return embedding / norm
 
 
 # ── Text→Image embedding (for search queries) ────
@@ -100,7 +105,14 @@ def embed_text_for_image_search(text: str) -> np.ndarray:
     """
     inputs = CLIP_PROCESSOR(text=[text], return_tensors="pt", padding=True)
     with torch.no_grad():
-        features = CLIP_MODEL.get_text_features(**inputs)
-    embedding = features[0].numpy()
-    embedding = embedding / np.linalg.norm(embedding)
-    return embedding
+        text_outputs = CLIP_MODEL.text_model(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs.get("attention_mask")
+        )
+        features = CLIP_MODEL.text_projection(text_outputs.pooler_output)
+    embedding = features[0].detach().cpu().numpy().astype(np.float32).reshape(-1)
+    norm = np.linalg.norm(embedding)
+    if norm == 0:
+        return embedding
+
+    return embedding / norm

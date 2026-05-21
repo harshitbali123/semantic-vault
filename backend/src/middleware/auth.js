@@ -2,16 +2,17 @@ const { supabase } = require('../config/supabase')
 
 const authMiddleware = async (req, res, next) => {
   try {
-    // Get token from Authorization: Bearer <token>
+    // Check Authorization header first, then query param (for EventSource)
     const authHeader = req.headers.authorization
+    const headerToken = (authHeader && authHeader.startsWith('Bearer '))
+      ? authHeader.split(' ')[1]
+      : null
+    const queryToken = req.query && req.query.token
+    const token = headerToken || queryToken
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        error: 'Missing authorization header'
-      })
+    if (!token) {
+      return res.status(401).json({ error: 'Missing authorization' })
     }
-
-    const token = authHeader.split(' ')[1]
 
     // Verify JWT with Supabase
     const {
@@ -20,9 +21,7 @@ const authMiddleware = async (req, res, next) => {
     } = await supabase.auth.getUser(token)
 
     if (error || !user) {
-      return res.status(401).json({
-        error: 'Invalid or expired token'
-      })
+      return res.status(401).json({ error: 'Invalid or expired token' })
     }
 
     // Attach user to req
@@ -33,9 +32,7 @@ const authMiddleware = async (req, res, next) => {
   } catch (err) {
     console.error('Auth middleware error:', err)
 
-    return res.status(500).json({
-      error: 'Internal server error'
-    })
+    return res.status(500).json({ error: 'Internal server error' })
   }
 }
 
