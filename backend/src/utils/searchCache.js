@@ -2,6 +2,7 @@ const cache  = require('../config/redis')
 const crypto = require('crypto')
 
 const CACHE_TTL = 300   // 5 minutes in seconds
+const CACHE_VERSION = 'v2'
 
 /**
  * Generate a deterministic cache key from query + user_id.
@@ -12,7 +13,7 @@ function makeCacheKey(query, userId) {
     .createHash('md5')
     .update(`${userId}:${query.trim().toLowerCase()}`)
     .digest('hex')
-  return `search:${hash}`
+  return `search:${CACHE_VERSION}:${hash}`
 }
 
 /**

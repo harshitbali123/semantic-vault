@@ -1,4 +1,5 @@
 import numpy as np
+from math import exp
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from rank_bm25 import BM25Okapi
@@ -12,6 +13,17 @@ RERANKER = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
 print("[Search] Reranker ready.")
 
 qdrant = QdrantClient(url=QDRANT_URL)
+
+MIN_TEXT_RELEVANCE = 0.55
+MIN_IMAGE_RELEVANCE = 0.45
+
+
+def _sigmoid(value: float) -> float:
+    return 1.0 / (1.0 + exp(-float(value)))
+
+
+def _clamp_relevance(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
 
 
 def _chunk_text(payload: dict) -> str:
@@ -93,13 +105,17 @@ def hybrid_search(query: str, user_id: str, top_k: int = 5) -> list:
     # ── Format results ─────────────────────────────
     results = []
     for result, score in ranked[:top_k]:
+        relevance = _sigmoid(score)
+        if relevance < MIN_TEXT_RELEVANCE:
+            continue
+
         results.append({
             "id":          str(result.id),
             "chunk_text":  _chunk_text(result.payload),
             "page_no":     result.payload.get("page_no", 0),
             "chunk_index": result.payload.get("chunk_index", 0),
             "document_id": result.payload.get("document_id", ""),
-            "score":       float(score),
+            "score":       round(_clamp_relevance(relevance), 3),
         })
 
     return results
@@ -129,5 +145,5 @@ def image_search(query: str, user_id: str, top_k: int = 6) -> list:
         "id":          str(r.id),
         "document_id": r.payload.get("document_id", ""),
         "page_no":     r.payload.get("page_no", 0),
-        "score":       float(r.score),
-    } for r in results]
+        "score":       round(_clamp_relevance((float(r.score) + 1.0) / 2.0), 3),
+    } for r in results if _clamp_relevance((float(r.score) + 1.0) / 2.0) >= MIN_IMAGE_RELEVANCE]

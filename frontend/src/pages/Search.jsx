@@ -8,6 +8,14 @@ const sourceColors = {
   notion:       'bg-purple-900 text-purple-300',
 }
 
+const MIN_DISPLAY_RELEVANCE = 0.55
+
+function clampRelevance(score) {
+  const value = Number(score)
+  if (Number.isNaN(value)) return 0
+  return Math.max(0, Math.min(1, value))
+}
+
 export default function Search() {
   const [query,        setQuery]        = useState('')
   const [results,      setResults]      = useState([])
@@ -27,8 +35,8 @@ export default function Search() {
       // ── Real API call — replaces mock data ──────
       const res = await api.post('/api/search', { query, top_k: 5 })
 
-      setResults(res.data.results       || [])
-      setImageResults(res.data.image_results || [])
+      setResults((res.data.results || []).filter(r => clampRelevance(r.score) >= MIN_DISPLAY_RELEVANCE))
+      setImageResults((res.data.image_results || []).filter(r => clampRelevance(r.score) >= MIN_DISPLAY_RELEVANCE))
       setCacheHit(res.data.cache_hit    || false)
 
     } catch (err) {
@@ -126,7 +134,7 @@ export default function Search() {
                   </span>
                   <span className="text-xs bg-gray-800 text-gray-300
                                    px-2 py-0.5 rounded-full font-mono">
-                    {(r.score * 100).toFixed(0)}%
+                    {(clampRelevance(r.score) * 100).toFixed(0)}%
                   </span>
                 </div>
               </div>
@@ -154,7 +162,7 @@ export default function Search() {
                 </div>
                 <p className="text-xs text-gray-400">Page {img.page_no}</p>
                 <p className="text-xs text-gray-500 font-mono">
-                  {(img.score * 100).toFixed(0)}% match
+                  {(clampRelevance(img.score) * 100).toFixed(0)}% match
                 </p>
               </div>
             ))}

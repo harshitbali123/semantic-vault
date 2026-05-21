@@ -55,6 +55,32 @@ function buildStoragePath(fileName, userId) {
   return `${userId}/${Date.now()}-${safeName}`
 }
 
+
+// ── Documents list route ────────────────────────
+
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('documents')
+      .select(
+        'id, name, source, file_path, mime_type, file_size, status, created_at, updated_at'
+      )
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    res.json({
+      documents: data || []
+    })
+  } catch (err) {
+    console.error('[Documents list]', err)
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
 async function dispatchToAiService(payload, retries = 3) {
   let lastErr
 

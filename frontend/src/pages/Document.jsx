@@ -7,7 +7,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 
-import api from '../lib/api'
+import { supabase } from '../lib/supabase'
 
 import UploadZone from '../components/documents/UploadZone'
 import JobStatus from '../components/documents/JobStatus'
@@ -15,7 +15,6 @@ import JobStatus from '../components/documents/JobStatus'
 const sourceColors = {
   upload: 'bg-blue-900 text-blue-300',
   google_drive: 'bg-green-900 text-green-300',
-  notion: 'bg-purple-900 text-purple-300',
 }
 
 const statusIcon = {
@@ -52,15 +51,30 @@ export default function Documents() {
   const [documents, setDocuments] = useState([])
   const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   const [activeJobs, setActiveJobs] = useState({})
 
   const fetchDocs = async () => {
-    const res = await api.get('/api/documents')
+    setError('')
 
-    setDocuments(res.data.documents || [])
+    try {
+      const { data, error } = await supabase
+        .from('documents')
+        .select('id, name, source, file_path, mime_type, file_size, status, created_at, updated_at')
+        .order('created_at', { ascending: false })
 
-    setLoading(false)
+      if (error) throw error
+
+      setDocuments(data || [])
+    } catch (err) {
+      setError(
+        err.response?.data?.error || err.message || 'Failed to load documents.'
+      )
+      setDocuments([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -88,11 +102,16 @@ export default function Documents() {
     fetchDocs()
   }
 
+  const filterCounts = {
+    all: documents.length,
+    upload: documents.filter((d) => d.source === 'upload').length,
+    google_drive: documents.filter((d) => d.source === 'google_drive').length,
+  }
+
   const filters = [
     'all',
     'upload',
     'google_drive',
-    'notion',
   ]
 
   const filtered =
@@ -129,11 +148,20 @@ export default function Documents() {
             {f === 'all'
               ? 'All'
               : f.replace('_', ' ')}
+            <span className="ml-2 text-xs opacity-70">
+              {filterCounts[f] || 0}
+            </span>
           </button>
         ))}
       </div>
 
       {/* Documents */}
+      {error && (
+        <p className="text-red-400 text-sm mb-4">
+          {error}
+        </p>
+      )}
+
       {loading ? (
         <p className="text-gray-400">
           Loading documents...

@@ -1,6 +1,7 @@
 const express  = require('express')
 const { supabaseAdmin } = require('../config/supabase')
 const authMiddleware = require('../middleware/auth')
+const { fetchAiService } = require('../utils/aiService')
 const router   = express.Router()
 
 // GET /api/ask?question=...
@@ -32,20 +33,18 @@ router.get('/', authMiddleware, async (req, res) => {
     )
 
     // ── Stream from Python AI service ────────────
-    const aiRes = await fetch(
-      `${process.env.AI_SERVICE_URL}/ask`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question,
-          user_id:   userId,
-          doc_names: docNames
-        })
-      }
-    )
+    const aiRes = await fetchAiService('/ask', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        user_id:   userId,
+        doc_names: docNames
+      })
+    })
 
     if (!aiRes.ok) {
-      res.write(`data: {"type":"error","content":"AI service unavailable"}\n\n`)
+      res.write(`data: {"type":"error","content":"AI service unavailable. Please try again."}\n\n`)
       return res.end()
     }
 
@@ -63,7 +62,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
   } catch (err) {
     console.error('[Ask]', err)
-    res.write(`data: {"type":"error","content":"${err.message}"}\n\n`)
+    res.write(`data: {"type":"error","content":"Unable to reach the AI service right now. Please try again."}\n\n`)
   } finally {
     res.end()
   }

@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import {
-  FileText,
   Cable,
   Search,
   Upload,
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react'
 
 import api from '../lib/api'
+import { supabase } from '../lib/supabase'
 
 const statusIcon = {
   done: <CheckCircle size={14} className="text-green-400" />,
@@ -20,34 +20,123 @@ const statusIcon = {
   error: <AlertCircle size={14} className="text-red-400" />,
 }
 
-const sourceBadge = {
-  upload: 'bg-blue-900 text-blue-300',
-  google_drive: 'bg-green-900 text-green-300',
-  notion: 'bg-purple-900 text-purple-300',
-}
-
 export default function Dashboard() {
   const [documents, setDocuments] = useState([])
   const [connectors, setConnectors] = useState([])
   const [loading, setLoading] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState('')
+
+  const refreshTimerRef = useRef(null)
 
   const navigate = useNavigate()
 
-  useEffect(() => {
-    Promise.all([
-      api.get('/api/documents'),
-      api.get('/api/connectors'),
+  const fetchDocuments = async () => {
+    const { data, error } = await supabase
+      .from('documents')
+      .select('id, name, source, file_path, mime_type, file_size, status, created_at, updated_at')
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    setDocuments(data || [])
+  }
+
+  const fetchConnectors = async () => {
+    const { data, error } = await supabase
+      .from('connectors')
+      .select('id, type, is_active, last_synced_at, total_files_synced, created_at')
+
+    if (error) throw error
+
+    setConnectors(data || [])
+  }
+
+  const syncGoogleDrive = async () => {
+    setSyncing(true)
+    setSyncMessage('')
+
+    try {
+      const res = await api.post('/api/connectors/google/sync')
+      const synced = res.data?.synced ?? 0
+      setSyncMessage(
+        synced > 0
+          ? `Google Drive sync started for ${synced} file(s).`
+          : 'Google Drive is connected. No new files to sync.'
+      )
+      await fetchDashboardData()
+    } catch (err) {
+      setSyncMessage(
+        err.response?.data?.error || err.message || 'Sync failed.'
+      )
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const fetchDashboardData = async () => {
+    const results = await Promise.allSettled([
+      fetchDocuments(),
+      fetchConnectors(),
     ])
-      .then(([docsRes, connRes]) => {
-        setDocuments(docsRes.data.documents || [])
-        setConnectors(connRes.data.connectors || [])
-      })
-      .catch((err) => {
+
+    const hadSuccess = results.some((result) => result.status === 'fulfilled')
+
+    if (hadSuccess) {
+      setUpdatedAt(new Date())
+    }
+
+    const rejected = results.find((result) => result.status === 'rejected')
+    if (rejected) {
+      console.error(rejected.reason)
+    }
+  }
+
+  useEffect(() => {
+    let mounted = true
+
+    const refresh = async () => {
+      try {
+        await fetchDashboardData()
+      } catch (err) {
         console.error(err)
-      })
-      .finally(() => {
-        setLoading(false)
-      })
+      } finally {
+        if (mounted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    refresh()
+
+    refreshTimerRef.current = setInterval(refresh, 15000)
+
+    const channel = supabase
+      .channel('dashboard-live')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'documents',
+      }, refresh)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'connectors',
+      }, refresh)
+      .subscribe()
+
+    const handleFocus = () => refresh()
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      mounted = false
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current)
+      }
+      window.removeEventListener('focus', handleFocus)
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   const stats = [
@@ -93,6 +182,18 @@ export default function Dashboard() {
         Overview of your knowledge base
       </p>
 
+      {updatedAt && (
+        <p className="text-xs text-gray-500 mb-4">
+          Live as of {updatedAt.toLocaleTimeString()}
+        </p>
+      )}
+
+      {syncMessage && (
+        <p className="text-xs text-gray-400 mb-4">
+          {syncMessage}
+        </p>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         {stats.map((s) => (
@@ -113,55 +214,6 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-6">
 
-        {/* Recent Documents */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-white">
-              Recent Documents
-            </h2>
-
-            <button
-              onClick={() => navigate('/documents')}
-              className="text-blue-400 text-sm hover:text-blue-300"
-            >
-              View all
-            </button>
-          </div>
-
-          {documents.length === 0 ? (
-            <p className="text-gray-500 text-sm">
-              No documents yet. Upload one!
-            </p>
-          ) : (
-            documents.slice(0, 5).map((doc) => (
-              <div
-                key={doc.id}
-                className="flex items-center gap-3 py-2.5 border-b border-gray-800 last:border-0"
-              >
-                <FileText
-                  size={14}
-                  className="text-gray-400 flex-shrink-0"
-                />
-
-                <span className="text-sm text-white flex-1 truncate">
-                  {doc.name}
-                </span>
-
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${
-                    sourceBadge[doc.source] ||
-                    'bg-gray-800 text-gray-300'
-                  }`}
-                >
-                  {doc.source}
-                </span>
-
-                {statusIcon[doc.status]}
-              </div>
-            ))
-          )}
-        </div>
-
         {/* Right Side */}
         <div className="flex flex-col gap-4">
 
@@ -173,6 +225,7 @@ export default function Dashboard() {
 
             {['google_drive'].map((type) => {
               const c = connectors.find((x) => x.type === type)
+              const canSync = Boolean(c)
 
               return (
                 <div
@@ -183,18 +236,34 @@ export default function Dashboard() {
                     {type.replace('_', ' ')}
                   </span>
 
-                  {c ? (
-                    <span className="text-xs text-green-400">
-                      Connected
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => navigate('/connectors')}
-                      className="text-xs text-blue-400 hover:text-blue-300"
-                    >
-                      Connect
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {c ? (
+                      <span className="text-xs text-green-400">
+                        Connected
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500">
+                        Not connected
+                      </span>
+                    )}
+
+                    {canSync ? (
+                      <button
+                        onClick={syncGoogleDrive}
+                        disabled={syncing}
+                        className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                      >
+                        {syncing ? 'Syncing...' : 'Sync now'}
+                      </button>
+                    ) : !c ? (
+                      <button
+                        onClick={() => navigate('/connectors')}
+                        className="text-xs text-blue-400 hover:text-blue-300"
+                      >
+                        Connect
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               )
             })}

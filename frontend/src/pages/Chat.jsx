@@ -3,12 +3,14 @@ import { Send, FileText, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 export default function Chat() {
+  const MIN_DISPLAY_RELEVANCE = 0.55
   const [messages,  setMessages]  = useState([])
   const [input,     setInput]     = useState('')
   const [streaming, setStreaming] = useState(false)
   const [drawer,    setDrawer]    = useState(null)
   const bottomRef  = useRef()
   const sourceRef  = useRef(null)   // holds the EventSource instance
+  const finishedRef = useRef(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -24,6 +26,7 @@ export default function Chat() {
     const question = input.trim()
     setInput('')
     setStreaming(true)
+    finishedRef.current = false
 
     // Add user message
     setMessages(prev => [...prev,
@@ -79,6 +82,7 @@ export default function Chat() {
 
         if (data.type === 'done' || data.type === 'error') {
           // Mark streaming complete
+          finishedRef.current = true
           setMessages(prev => {
             const updated = [...prev]
             const last    = { ...updated[updated.length - 1] }
@@ -97,6 +101,7 @@ export default function Chat() {
     }
 
     es.onerror = () => {
+      if (finishedRef.current) return
       es.close()
       setStreaming(false)
       setMessages(prev => {
@@ -130,6 +135,12 @@ export default function Chat() {
     })
   }
 
+  const clampRelevance = (score) => {
+    const value = Number(score)
+    if (Number.isNaN(value)) return 0
+    return Math.max(0, Math.min(1, value))
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] max-w-3xl mx-auto">
       <div className="mb-4">
@@ -153,33 +164,38 @@ export default function Chat() {
               ${msg.role==='user'
                 ? 'bg-blue-600 text-white rounded-br-none'
                 : 'bg-gray-900 border border-gray-800 text-gray-100 rounded-bl-none'}`}>
-              {msg.role === 'assistant' ? (
-                <>
-                  <p className="leading-relaxed whitespace-pre-wrap">
-                    {renderWithCitations(msg.content, msg.citations)}
-                    {msg.streaming && (
-                      <span className="inline-block w-1.5 h-4 bg-blue-400
-                                       ml-0.5 animate-pulse align-middle" />
-                    )}
-                  </p>
-                  {msg.citations?.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-700">
-                      <p className="text-xs text-gray-500 mb-2">Sources</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {msg.citations.map(c => (
-                          <button key={c.id} onClick={() => setDrawer(c)}
-                            className="flex items-center gap-1.5 px-2.5 py-1
-                                       bg-gray-800 hover:bg-gray-700 rounded-lg
-                                       text-xs text-gray-300 transition-colors">
-                            <FileText size={10} />
-                            {c.file_name} · p.{c.page_no}
-                          </button>
-                        ))}
+              {msg.role === 'assistant' ? (() => {
+                const visibleCitations = (msg.citations || [])
+                  .filter(c => clampRelevance(c.score) >= MIN_DISPLAY_RELEVANCE)
+
+                return (
+                  <>
+                    <p className="leading-relaxed whitespace-pre-wrap">
+                      {renderWithCitations(msg.content, visibleCitations)}
+                      {msg.streaming && (
+                        <span className="inline-block w-1.5 h-4 bg-blue-400
+                                         ml-0.5 animate-pulse align-middle" />
+                      )}
+                    </p>
+                    {visibleCitations.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gray-700">
+                        <p className="text-xs text-gray-500 mb-2">Sources</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {visibleCitations.map(c => (
+                            <button key={c.id} onClick={() => setDrawer(c)}
+                              className="flex items-center gap-1.5 px-2.5 py-1
+                                         bg-gray-800 hover:bg-gray-700 rounded-lg
+                                         text-xs text-gray-300 transition-colors">
+                              <FileText size={10} />
+                              {c.file_name} · p.{c.page_no}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </>
-              ) : msg.content}
+                    )}
+                  </>
+                )
+              })() : msg.content}
             </div>
           </div>
         ))}
@@ -219,7 +235,7 @@ export default function Chat() {
                 </h3>
                 <p className="text-gray-400 text-xs mt-1">
                   Page {drawer.page_no}
-                  {drawer.score && ` · ${(drawer.score*100).toFixed(0)}% relevance`}
+                  {clampRelevance(drawer.score) > 0 && ` · ${(clampRelevance(drawer.score)*100).toFixed(0)}% relevance`}
                 </p>
               </div>
               <button onClick={() => setDrawer(null)}

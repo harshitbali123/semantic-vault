@@ -1,6 +1,7 @@
 const express  = require('express')
 const { supabaseAdmin } = require('../config/supabase')
 const { getCached, setCached } = require('../utils/searchCache')
+const { fetchAiService } = require('../utils/aiService')
 const router   = express.Router()
 
 // POST /api/search
@@ -22,13 +23,11 @@ router.post('/', async (req, res) => {
     console.log(`[Search] Cache MISS — calling AI service: "${query}"`)
 
     // ── Step 2: Call Python AI service ───────────
-    const aiRes = await fetch(
-      `${process.env.AI_SERVICE_URL}/search`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, user_id: userId, top_k })
-      }
-    )
+    const aiRes = await fetchAiService('/search', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, user_id: userId, top_k })
+    })
 
     if (!aiRes.ok)
       throw new Error(`AI service error: ${aiRes.status}`)
